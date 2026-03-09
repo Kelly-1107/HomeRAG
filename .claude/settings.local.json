@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm install:*)",
+      "Bash(pkill:*)",
+      "Bash(git rm:*)",
+      "Bash(npm run:*)",
+      "Bash(xargs kill)",
+      "Bash(cp:*)",
+      "Bash(sqlite3:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(find:*)",
+      "Bash(sed:*)",
+      "Bash(powershell:*)",
+      "Bash(npm list:*)"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm run:*)",
+      "Bash(npm:*)",
+      "Bash(python:*)",
+      "Bash(uvicorn main:app:*)",
+      "Bash(curl:*)",
+      "Bash(sqlite3:*)",
+      "Bash(do:*)",
+      "Bash(ls:*)",
+      "Bash(taskkill:*)",
+      "Bash(xargs grep:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

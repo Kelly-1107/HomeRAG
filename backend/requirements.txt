@@ -1,0 +1,19 @@
+# FastAPI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Vector DB
+chromadb==0.4.22
+
+# LLM
+openai==1.10.0
+httpx==0.26.0
+
+# Utils
+python-dotenv==1.0.0

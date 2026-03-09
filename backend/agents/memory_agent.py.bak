@@ -1,0 +1,177 @@
+from sqlalchemy.orm import Session
+import json
+
+from services.llm_service import get_llm_service
+from services.memory_service import MemoryService
+from services.embedding_service import EmbeddingService
+from services.search_service import SearchService
+from agents.intent_classifier import IntentClassifier, Intent
+from agents.extraction_agent import ExtractionAgent
+from agents.answer_generator import AnswerGenerator
+from models.schemas import ChatResponse
+
+
+class MemoryAgent:
+    """总编排入口：串联全部 AI Flow。"""
+
+    def __init__(self):
+        self._llm = get_llm_service()
+        self._memory_service = MemoryService()
+        self._embedding_service = EmbeddingService(self._llm)
+        self._search_service = SearchService()
+
+        # 初始化各个 Agent
+        self._intent_classifier = IntentClassifier(self._llm)
+        self._extraction_agent = ExtractionAgent(self._llm)
+        self._answer_generator = AnswerGenerator(self._llm)
+
+    def process(self, db: Session, user_id: str, user_input: str) -> ChatResponse:
+        """
+        主入口：处理用户输入，返回回复。
+
+        Flow:
+        1. intent_classifier -> 判断意图
+        2A. record: extraction_agent -> memory_service (create/update)
+        2B. query: search_service -> answer_generator
+        """
+        # Step 1: 意图分类
+        intent = self._intent_classifier.classify(user_input)
+
+        if intent == Intent.RECORD:
+            # Step 2A: 记录流程
+            return self._handle_record(db, user_id, user_input)
+        else:
+            # Step 2B: 查询流程
+            return self._handle_query(db, user_id, user_input)
+
+    def _handle_record(self, db: Session, user_id: str,
+                       user_input: str) -> ChatResponse:
+        """处理记录/更新操作。"""
+        # 2A-1: 结构化抽取
+        extracted = self._extraction_agent.extract(user_input)
+
+        # 处理多个物品的情况
+        if isinstance(extracted, list):
+            # 批量创建多个物品
+            created_names = []
+            for item_data in extracted:
+                name = item_data.get("name")
+                embedding = self._embedding_service.generate(f"{name} {item_data.get('location', '')} {item_data.get('room', '')}")
+                memory = self._memory_service.create(
+                    db=db,
+                    user_id=user_id,
+                    raw_text=user_input,
+                    memory_type=item_data.get("type", "item"),
+                    structured_data=item_data,
+                    embedding=embedding,
+                )
+                created_names.append(f"{name}（{item_data.get('quantity', 1)}件）")
+
+            reply = f"已记录：{', '.join(created_names)}"
+            return ChatResponse(reply=reply, memory_id=None)
+
+        # 单个物品的情况
+        name = extracted.get("name")
+        quantity = extracted.get("quantity", 1)
+
+        # 2A-2: 使用向量相似度搜索可能需要更新的记录
+        # 先生成 embedding
+        embedding = self._embedding_service.generate(user_input)
+
+        # 搜索相似记录（top 3）
+        candidates = self._search_service.search(db, user_id, user_input, top_k=3)
+
+        # 判断是否为更新操作
+        existing = None
+        if candidates:
+            # 使用 LLM 判断是否为同一物品的更新
+            is_update, target_id = self._check_if_update(user_input, candidates, name)
+            if is_update and target_id:
+                existing = self._memory_service.get_by_id(db, target_id)
+
+        if existing:
+            # 更新现有记录
+            self._memory_service.update(db, existing.id, extracted, user_input)
+            reply = f"已更新「{name}」的信息"
+            if quantity > 1:
+                reply += f"（数量：{quantity}件）"
+            memory_id = existing.id
+        else:
+            # 新增记录
+            memory = self._memory_service.create(
+                db=db,
+                user_id=user_id,
+                raw_text=user_input,
+                memory_type=extracted.get("type", "item"),
+                structured_data=extracted,
+                embedding=embedding,
+            )
+            reply = f"已记录「{name}」"
+            if quantity > 1:
+                reply += f"（数量：{quantity}件）"
+            memory_id = memory.id
+
+        return ChatResponse(reply=reply, memory_id=memory_id)
+
+    def _check_if_update(self, user_input: str, candidates: list, extracted_name: str) -> tuple[bool, int | None]:
+        """
+        使用 LLM 判断用户输入是否为更新操作。
+
+        返回: (是否更新, 目标记录ID)
+        """
+        if not candidates:
+            return False, None
+
+        # 构建候选记录信息
+        candidates_info = []
+        for c in candidates:
+            candidates_info.append({
+                "id": c.id,
+                "name": c.structured_data.get("name"),
+                "location": c.structured_data.get("location"),
+                "raw_text": c.raw_text
+            })
+
+        candidates_json = json.dumps(candidates_info, ensure_ascii=False, indent=2)
+
+        prompt = f"""你是一个记忆更新判断助手。
+
+用户输入：{user_input}
+提取的物品名称：{extracted_name}
+
+已有的相似记录：
+{candidates_json}
+
+判断：用户是在更新已有物品的信息，还是在记录新物品？
+
+判断规则：
+1. 如果用户明确提到"现在在"、"���到"、"放到"等更新词汇，且物品名称相似，则为更新
+2. 如果物品名称高度相似（如"黑色羽绒服"和"羽绒服"），则为更新
+3. 如果是完全不同的物品，则为新增
+
+请严格按照以下 JSON 格式输出（不要包含任何其他文字）：
+{{
+  "is_update": true/false,
+  "target_id": 记录ID或null,
+  "reason": "判断理由"
+}}"""
+
+        response = self._llm.complete(prompt)
+
+        try:
+            result = json.loads(response)
+            return result.get("is_update", False), result.get("target_id")
+        except:
+            # 解析失败，默认为新增
+            return False, None
+
+    def _handle_query(self, db: Session, user_id: str,
+                      user_input: str) -> ChatResponse:
+        """处理查询操作。"""
+        # 2B-1: 向量检索
+        candidates = self._search_service.search(db, user_id, user_input)
+
+        # 2B-2: 生成回答
+        reply = self._answer_generator.generate(user_input, candidates)
+
+        return ChatResponse(reply=reply, memory_id=None)
