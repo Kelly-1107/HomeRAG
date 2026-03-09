@@ -127,7 +127,7 @@ class MemoryAgent:
                 created_names.append(f"{name}（{item_data.get('quantity', 1)}件）")
 
             reply = f"已记录：{', '.join(created_names)}"
-            return ChatResponse(reply=reply, memory_id=None)
+            return ChatResponse(reply=reply, memory_id=None, type=memory_type)
 
         # 单个物品的情况
         name = extracted.get("name")
@@ -202,7 +202,7 @@ class MemoryAgent:
                 reply += f"（数量：{quantity}件）"
             memory_id = memory.id
 
-        return ChatResponse(reply=reply, memory_id=memory_id)
+        return ChatResponse(reply=reply, memory_id=memory_id, type=memory_type)
 
     def _is_insufficient_info(self, extracted: dict, memory_type: str) -> bool:
         """判断提取结果是否信息量不足（可能是查询而非记录）。

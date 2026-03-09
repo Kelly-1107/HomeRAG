@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     memory_id: Optional[int] = None  # 如果是 record 操作，返回 memory_id
+    type: Optional[str] = None  # 新增: item / consumption / emotion / other
 
 
 class RoomStatsResponse(BaseModel):

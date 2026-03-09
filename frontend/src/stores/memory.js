@@ -127,13 +127,17 @@ export const useMemoryStore = defineStore('memory', () => {
   async function sendMessage(message) {
     try {
       const res = await api.chat(userId.value, message)
-      // 发送后刷新数据（不清缓存，下次切换时重新请求）
-      await Promise.allSettled([
-        fetchMemories(),
-        fetchRecentUpdates(),
-        fetchRoomStats(),
-        fetchTagStats()
-      ])
+      // 只有 record 操作（memory_id 有值）才清除缓存并刷新数据
+      if (res.data.memory_id && res.data.type) {
+        // 只清除对应类型的缓存
+        clearTypeCache(res.data.type)
+        await Promise.allSettled([
+          fetchMemories(),
+          fetchRecentUpdates(),
+          fetchRoomStats(),
+          fetchTagStats()
+        ])
+      }
       return res.data
     } catch (error) {
       console.error('sendMessage error:', error)
